@@ -26,3 +26,6 @@ Calculate QR decomposition of 5x5 matrix and append size and time to test.csv fi
 Calculate QR decomposition of 10x10 matrix and display size, time, Q matrix and R matrix
 ./main -n 10 -v
 ```
+
+#### Runner
+Allows to run program many times for easier statistics
