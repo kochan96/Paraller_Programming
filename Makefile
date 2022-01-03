@@ -6,7 +6,7 @@ LIBS	  = -lm
 all: main
 
 main: main.c
-	$(CC) $(CFLAGS) -o main main.c $(LIBS)
+	$(CC) $(CFLAGS) -o qr_factorization main.c $(LIBS)
 
 clean: 
-	rm -f *.o main
+	rm -f *.o qr_factorization
