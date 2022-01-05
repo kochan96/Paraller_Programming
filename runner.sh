@@ -1,12 +1,12 @@
 #!/bin/bash
 
-for((i=100;i<=2000;i+=100))
+for((i=10;i<=100;i+=10))
 do
     sizes+=($i);
 done
 
-file_name_seq=seq-100-2000.csv
-file_name_parallel=parallel-100-2000.csv
+file_name_seq=seq-10-100.csv
+file_name_parallel=parallel-10-100.csv
 
 rm -rf seq.csv
 rm -rf parallel.csv
