@@ -1,6 +1,6 @@
 CC	= gcc   
 # uncomment for paraller
-# CFLAGS    = -fopenmp
+CFLAGS    = -fopenmp
 LIBS	  = -lm
 
 all: main
