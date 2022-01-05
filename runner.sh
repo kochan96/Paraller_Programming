@@ -1,24 +1,22 @@
 #!/bin/bash
 
-for((i=10;i<=100;i+=10))
+# for((i=10;i<=100;i+=10))
+# do
+#     sizes+=($i);
+# done
+
+file_name_seq=seq-1000-many.csv
+file_name_parallel=parallel-1000-many.csv
+
+rm -rf ${file_name_seq}
+rm -rf ${file_name_parallel}
+
+for((i=0;i<10;i++))
 do
-    sizes+=($i);
+    ./qr_factorization -n 1000 -o ${file_name_seq}
 done
 
-file_name_seq=seq-10-100.csv
-file_name_parallel=parallel-10-100.csv
-
-rm -rf seq.csv
-rm -rf parallel.csv
-
-echo ${sizes[0]}
-
-for((i=0;i<${#sizes[@]};i++))
+for((i=0;i<10;i++))
 do
-    ./qr_factorization -n ${sizes[i]} -o ${file_name_seq}
-done
-
-for((i=0;i<${#sizes[@]};i++))
-do
-    ./qr_factorization -n ${sizes[i]} -o ${file_name_parallel} -p
+    ./qr_factorization -n 1000 -o ${file_name_parallel} -p
 done
