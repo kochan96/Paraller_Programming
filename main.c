@@ -1,20 +1,7 @@
 #include <getopt.h>
-#include <omp.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <time.h>
 #include <math.h>
-#include <limits.h>
-
-typedef double **matrix_t;
-
-struct qr_result_t
-{
-    int q_size;
-    matrix_t q;
-    int r_size;
-    matrix_t r;
-};
+#include "common.h"
 
 struct arguments_t
 {
@@ -24,24 +11,14 @@ struct arguments_t
     int write_to_file;
     char *file_name;
     int run_parallel;
+    int number_of_iterations;
 };
 
-struct qr_result_t qr_factorization_seq(int size, double **matrix);
-struct qr_result_t qr_factorization_parallel(int size, double **matrix);
-
 struct arguments_t parse_arguments(int argc, char *argv[]);
-double **create_matrix(int size);
-void copy_matrix(int size, double **src, double **dst);
-double **mul_matrix(int size, double **matrix1, double **matrix2);
-void random_fill(int size, int max_number, double **matrix);
-
-//max number from range [-max_number, max_number]
-double random_number(int max_number);
-
-void print_usage(char *argv[]);
-void print_matrix(int size, double **matrix);
-
-void free_matrix(int size, double **matrix);
+double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iterations);
+void qr_factorization(int size, double **matrix, double **q, double **r, int parallel);
+void qr_factorization_seq(int size, double **matrix, double **q, double **r);
+void qr_factorization_parallel(int size, double **matrix, double **q, double **r);
 
 int main(int argc, char *argv[])
 {
@@ -55,35 +32,22 @@ int main(int argc, char *argv[])
     double **A = create_matrix(arguments.size);
     copy_matrix(arguments.size, matrix, A);
 
-    struct qr_result_t result;
-
     double time_spent;
-    if (arguments.run_parallel)
-    {
-        double begin = omp_get_wtime();
-        printf("Started Parallel QR decompositon for %dx%d matrix\n", arguments.size, arguments.size);
+    double **q = create_matrix(arguments.size);
+    double **r = create_matrix(arguments.size);
+    qr_factorization(arguments.size, A, q, r, arguments.run_parallel);
 
-        result = qr_factorization_parallel(arguments.size, matrix);
+    double begin = omp_get_wtime();
+    printf("Started for %dx%d matrix\n", arguments.size, arguments.size);
 
-        double end = omp_get_wtime();
-        time_spent = end - begin;
+    double *eigenvalues = qr_algorithm(arguments.size, matrix, arguments.run_parallel, arguments.number_of_iterations);
 
-        printf("Parallel Executed QR decompositon on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
-    }
-    else
-    {
-        double begin = omp_get_wtime();
-        printf("Started QR decompositon for %dx%d matrix\n", arguments.size, arguments.size);
+    double end = omp_get_wtime();
+    time_spent = end - begin;
 
-        result = qr_factorization_seq(arguments.size, matrix);
+    printf("Ended on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
 
-        double end = omp_get_wtime();
-        time_spent = end - begin;
-
-        printf("Executed QR decompositon on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
-    }
-
-    if (arguments.write_to_file)
+        if (arguments.write_to_file)
     {
         FILE *file = fopen(arguments.file_name, "a");
         fprintf(file, "%d,%f\n", arguments.size, time_spent);
@@ -92,130 +56,44 @@ int main(int argc, char *argv[])
 
     if (arguments.display_result)
     {
+        printf("Eigenvalues\n");
+        for (int i = 0; i < arguments.size; i++)
+        {
+            printf("%.2f,", eigenvalues[i]);
+        }
+
+        printf("\n");
+        printf("\n");
+
         printf("A\n");
         print_matrix(arguments.size, A);
         printf("\n");
 
+        double **q = create_matrix(arguments.size);
+        double **r = create_matrix(arguments.size);
+        qr_factorization(arguments.size, A, q, r, arguments.run_parallel);
+
         printf("Q\n");
-        print_matrix(result.q_size, result.q);
+        print_matrix(arguments.size, q);
         printf("\n");
 
         printf("R\n");
-        print_matrix(result.r_size, result.r);
+        print_matrix(arguments.size, r);
         printf("\n");
 
         printf("A = QR\n");
-        double **qr = mul_matrix(arguments.size, result.q, result.r);
+        double **qr = mul_matrix(arguments.size, q, r);
         print_matrix(arguments.size, qr);
         free_matrix(arguments.size, qr);
+        free_matrix(arguments.size, q);
+        free_matrix(arguments.size, r);
     }
 
     free_matrix(arguments.size, matrix);
     free_matrix(arguments.size, A);
-    free_matrix(result.q_size, result.q);
-    free_matrix(result.r_size, result.r);
+    free(eigenvalues);
 
     return 0;
-}
-
-struct qr_result_t qr_factorization_seq(int size, double **matrix)
-{
-    struct qr_result_t result;
-    result.q = create_matrix(size);
-    result.r = create_matrix(size);
-    result.q_size = size;
-    result.r_size = size;
-
-    for (int k = 0; k < size; k++)
-    {
-        double r_sum = 0;
-        for (int i = 0; i < size; i++)
-        {
-            double cell = matrix[i][k];
-            r_sum += cell * cell;
-        }
-
-        result.r[k][k] = r_sum;
-        for (int i = 0; i < size; i++)
-        {
-            result.q[i][k] = matrix[i][k] / r_sum;
-        }
-
-        for (int j = k + 1; j < size; j++)
-        {
-            double rkj = 0;
-            for (int i = 0; i < size; i++)
-            {
-                rkj += result.q[i][k] * matrix[i][j];
-            }
-
-            result.r[k][j] = rkj;
-
-            for (int i = 0; i < size; i++)
-            {
-                matrix[i][j] = matrix[i][j] - rkj * result.q[i][k];
-            }
-        }
-    }
-
-    return result;
-}
-
-struct qr_result_t qr_factorization_parallel(int size, double **matrix)
-{
-    struct qr_result_t result;
-    double **q = create_matrix(size);
-    double **r = create_matrix(size);
-    result.q_size = size;
-    result.r_size = size;
-
-    int i;
-    int j;
-    int k;
-
-    for (k = 0; k < size; k++)
-    {
-        double r_sum = 0;
-#pragma omp parallel for private(i) reduction(+ \
-                                              : r_sum) schedule(static)
-        for (i = 0; i < size; i++)
-        {
-            r_sum += matrix[i][k] * matrix[i][k];
-        }
-
-        r[k][k] = sqrt(r_sum);
-
-#pragma omp parallel for private(i) shared(k, r) schedule(static)
-        for (i = 0; i < size; i++)
-        {
-            q[i][k] = matrix[i][k] / r[k][k];
-        }
-
-#pragma omp parallel for private(j, r_sum) shared(k, r)
-        for (j = k + 1; j < size; j++)
-        {
-            r_sum = 0;
-#pragma omp parallel for private(i) shared(k, j) reduction(+ \
-                                                           : r_sum) schedule(static)
-            for (i = 0; i < size; i++)
-            {
-                r_sum += q[i][k] * matrix[i][j];
-            }
-
-            r[k][j] = r_sum;
-
-#pragma omp parallel for private(i) shared(k, j) schedule(static)
-            for (i = 0; i < size; i++)
-            {
-                matrix[i][j] = matrix[i][j] - r[k][j] * q[i][k];
-            }
-        }
-    }
-
-    result.q = q;
-    result.r = r;
-
-    return result;
 }
 
 struct arguments_t parse_arguments(int argc, char *argv[])
@@ -230,9 +108,10 @@ struct arguments_t parse_arguments(int argc, char *argv[])
     arguments.display_result = 0;
     arguments.write_to_file = 0;
     arguments.run_parallel = 0;
+    arguments.number_of_iterations = 10;
     int opt;
 
-    while ((opt = getopt(argc, argv, "hvn:m:o:p")) != -1)
+    while ((opt = getopt(argc, argv, "hvn:m:o:pi:")) != -1)
     {
         switch (opt)
         {
@@ -255,6 +134,9 @@ struct arguments_t parse_arguments(int argc, char *argv[])
         case 'p':
             arguments.run_parallel = 1;
             break;
+        case 'i':
+            arguments.number_of_iterations = atoi(optarg);
+            break;
         default:
             print_usage(argv);
         }
@@ -272,107 +154,139 @@ void print_usage(char *argv[])
                     "    -m max_number: maximum number of cell in generated matrix (default 100)\n"
                     "    -v display A,Q,R, A=Q*R matrices (default false)\n"
                     "    -o file: append size and execution time to file (in csv format)\n"
-                    "    -p: run in parallel\n",
+                    "    -p: run in parallel\n"
+                    "    -i iterations_count: number of iterations in algorithm (default 10)\n",
             argv[0]);
 
     exit(1); //failure
 }
 
-void print_matrix(int size, double **matrix)
-{
-    double max_number = INT_MIN;
-    for (int i = 0; i < size; i++)
-    {
-        for (int j = 0; j < size; j++)
-        {
-            if (max_number < fabs(matrix[i][j]))
-            {
-                max_number = fabs(matrix[i][j]);
-            }
-        }
-    }
-
-    int padding = log10(max_number + 0.5) + 5; // includes padding for sign, dot, 2 decimal places
-    for (int i = 0; i < size; i++)
-    {
-        for (int j = 0; j < size; j++)
-        {
-            printf("%*.2f,", padding, matrix[i][j]);
-        }
-        printf("\n");
-    }
-}
-
-void free_matrix(int size, double **matrix)
-{
-    for (int i = 0; i < size; i++)
-    {
-        free(matrix[i]);
-    }
-
-    free(matrix);
-}
-
-//max number from range [-max_number, max_number]
-double random_number(int max_number)
-{
-    double min = -max_number;
-    double max = max_number;
-
-    double range = (max - min);
-    double div = RAND_MAX / range;
-    return min + (rand() / div);
-}
-
-double **create_matrix(int size)
-{
-    double **matrix = malloc(sizeof(double *) * size);
-    for (int i = 0; i < size; i++)
-    {
-        matrix[i] = calloc(size, sizeof(double));
-    }
-
-    return matrix;
-}
-
-void random_fill(int size, int max_number, double **matrix)
-{
-    for (int i = 0; i < size; i++)
-    {
-        for (int j = 0; j < size; j++)
-        {
-            matrix[i][j] = random_number(max_number);
-        }
-    }
-}
-
-void copy_matrix(int size, double **src, double **dst)
-{
-    for (int i = 0; i < size; i++)
-    {
-        for (int j = 0; j < size; j++)
-        {
-            dst[i][j] = src[i][j];
-        }
-    }
-}
-
-double **mul_matrix(int size, double **matrix1, double **matrix2)
+double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iterations)
 {
     double **result = create_matrix(size);
-    for (int result_row = 0; result_row < size; result_row++)
-    {
-        for (int result_col = 0; result_col < size; result_col++)
-        {
-            double sum = 0;
-            for (int i = 0; i < size; i++)
-            {
-                sum += matrix1[result_row][i] * matrix2[i][result_col];
-            }
+    copy_matrix(size, matrix, result);
+    double **q = create_matrix(size);
+    double **r = create_matrix(size);
 
-            result[result_row][result_col] = sum;
+    double *eigenvalues = malloc(sizeof(double) * size);
+
+    for (int i = 0; i < number_of_iterations; i++)
+    {
+        qr_factorization(size, result, q, r, parallel);
+        /* Ak+1 = Rk Qk */
+        if (parallel)
+        {
+            result = mul_matrix_parallel(size, r, q);
+        }
+        else
+        {
+            result = mul_matrix(size, r, q);
         }
     }
 
-    return result;
+    for (int i = 0; i < size; i++)
+        eigenvalues[i] = result[i][i];
+
+    free_matrix(size, result);
+    free_matrix(size, q);
+    free_matrix(size, r);
+
+    return eigenvalues;
+}
+
+void qr_factorization(int size, double **matrix, double **q, double **r, int parallel)
+{
+    if (parallel)
+    {
+        qr_factorization_parallel(size, matrix, q, r);
+    }
+    else
+    {
+        qr_factorization_seq(size, matrix, q, r);
+    }
+}
+
+void qr_factorization_seq(int size, double **matrix, double **q, double **r)
+{
+    for (int k = 0; k < size; k++)
+    {
+        double r_sum = 0;
+        for (int i = 0; i < size; i++)
+        {
+            r_sum += matrix[i][k] * matrix[i][k];
+        }
+
+        r_sum = sqrt(r_sum);
+        r[k][k] = r_sum;
+
+        for (int i = 0; i < size; i++)
+        {
+            q[i][k] = matrix[i][k] / r_sum;
+        }
+
+        for (int j = k + 1; j < size; j++)
+        {
+            double rkj = 0;
+            for (int i = 0; i < size; i++)
+            {
+                rkj += q[i][k] * matrix[i][j];
+            }
+
+            r[k][j] = rkj;
+
+            for (int i = 0; i < size; i++)
+            {
+                matrix[i][j] = matrix[i][j] - rkj * q[i][k];
+            }
+        }
+    }
+}
+
+void qr_factorization_parallel(int size, double **matrix, double **q, double **r)
+{
+
+    double r_sum;
+
+    int i;
+    int j;
+    int k;
+
+    for (k = 0; k < size; k++)
+    {
+        r_sum = 0;
+        #pragma omp parallel for private(i) shared(matrix, size) reduction(+: r_sum)
+        for (i = 0; i < size; i++)
+        {
+            r_sum += matrix[i][k] * matrix[i][k];
+        }
+
+        r_sum = sqrt(r_sum);
+        r[k][k] = r_sum;
+
+        #pragma omp parallel for private(i) shared(k, r, matrix, q, size)
+        for (i = 0; i < size; i++)
+        {
+            q[i][k] = matrix[i][k] / r[k][k];
+        }
+
+        #pragma omp parallel for private(j, r_sum) shared(k, r)
+        for (j = k + 1; j < size; j++)
+        {
+            r_sum = 0;
+
+            #pragma omp parallel for private(i) shared(j) reduction(+: r_sum)
+            for (i = 0; i < size; i++)
+            {
+                r_sum += q[i][k] * matrix[i][j];
+            }
+
+            r[k][j] = r_sum;
+
+            #pragma omp parallel for private(i) shared(j)
+            for (i = 0; i < size; i++)
+            {
+                matrix[i][j] = matrix[i][j] - r[k][j] * q[i][k];
+            }
+        }
+    }
 }
