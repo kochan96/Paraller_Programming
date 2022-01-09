@@ -9,8 +9,8 @@
 
 double **create_matrix(int size);
 void copy_matrix(int size, double **src, double **dst);
-double **mul_matrix(int size, double **matrix1, double **matrix2);
-double **mul_matrix_parallel(int size, double **matrix1, double **matrix2);
+void mul_matrix(int size, double **matrix1, double **matrix2, double** result);
+void mul_matrix_parallel(int size, double **matrix1, double **matrix2, double** result);
 void random_fill(int size, int max_number, double **matrix);
 
 //max number from range [-max_number, max_number]

@@ -79,9 +79,8 @@ void copy_matrix(int size, double **src, double **dst)
     }
 }
 
-double **mul_matrix(int size, double **matrix1, double **matrix2)
+void mul_matrix(int size, double **matrix1, double **matrix2, double **result)
 {
-    double **result = create_matrix(size);
     for (int result_row = 0; result_row < size; result_row++)
     {
         for (int result_col = 0; result_col < size; result_col++)
@@ -95,18 +94,15 @@ double **mul_matrix(int size, double **matrix1, double **matrix2)
             result[result_row][result_col] = sum;
         }
     }
-
-    return result;
 }
 
-double **mul_matrix_parallel(int size, double **matrix1, double **matrix2)
+void mul_matrix_parallel(int size, double **matrix1, double **matrix2, double **result)
 {
-    double **result = create_matrix(size);
     int i;
     int j;
     int k;
 
-#pragma omp parallel for private(i, j, k) shared(matrix1, matrix2, result)
+    #pragma omp parallel for private(i, j, k) shared(matrix1, matrix2, result)
     for (i = 0; i < size; i++)
     {
         for (j = 0; j < size; j++)
@@ -120,6 +116,4 @@ double **mul_matrix_parallel(int size, double **matrix1, double **matrix2)
             result[i][j] = sum;
         }
     }
-
-    return result;
 }
