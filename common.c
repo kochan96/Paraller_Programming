@@ -111,10 +111,13 @@ double **mul_matrix_parallel(int size, double **matrix1, double **matrix2)
     {
         for (j = 0; j < size; j++)
         {
+            double sum = 0;
             for (k = 0; k < size; k++)
             {
-                result[i][j] += matrix1[i][k] * matrix2[k][j];
+                sum += matrix1[i][k] * matrix2[k][j];
             }
+
+            result[i][j] = sum;
         }
     }
 

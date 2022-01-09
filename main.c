@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 
     printf("Ended on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
 
-        if (arguments.write_to_file)
+    if (arguments.write_to_file)
     {
         FILE *file = fopen(arguments.file_name, "a");
         fprintf(file, "%d,%f\n", arguments.size, time_spent);
@@ -254,7 +254,8 @@ void qr_factorization_parallel(int size, double **matrix, double **q, double **r
     for (k = 0; k < size; k++)
     {
         r_sum = 0;
-        #pragma omp parallel for private(i) shared(matrix, size) reduction(+: r_sum)
+#pragma omp parallel for private(i) shared(matrix, size) reduction(+ \
+                                                                   : r_sum)
         for (i = 0; i < size; i++)
         {
             r_sum += matrix[i][k] * matrix[i][k];
@@ -263,18 +264,17 @@ void qr_factorization_parallel(int size, double **matrix, double **q, double **r
         r_sum = sqrt(r_sum);
         r[k][k] = r_sum;
 
-        #pragma omp parallel for private(i) shared(k, r, matrix, q, size)
+#pragma omp parallel for private(i) shared(k, r, matrix, q, size)
         for (i = 0; i < size; i++)
         {
             q[i][k] = matrix[i][k] / r[k][k];
         }
 
-        #pragma omp parallel for private(j, r_sum) shared(k, r)
+
+#pragma omp parallel for private(j, r_sum, i) shared(k, r, q, matrix)
         for (j = k + 1; j < size; j++)
         {
             r_sum = 0;
-
-            #pragma omp parallel for private(i) shared(j) reduction(+: r_sum)
             for (i = 0; i < size; i++)
             {
                 r_sum += q[i][k] * matrix[i][j];
@@ -282,7 +282,6 @@ void qr_factorization_parallel(int size, double **matrix, double **q, double **r
 
             r[k][j] = r_sum;
 
-            #pragma omp parallel for private(i) shared(j)
             for (i = 0; i < size; i++)
             {
                 matrix[i][j] = matrix[i][j] - r[k][j] * q[i][k];
