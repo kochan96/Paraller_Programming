@@ -19,8 +19,8 @@ struct arguments_t
 };
 
 struct arguments_t parse_arguments(int argc, char *argv[]);
-double *qr_algorithm(int size, double **matrix, int number_of_iterations, int processId, int processCount);
-void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int processId, int processCount);
+double *qr_algorithm(int size, double **matrix, int number_of_iterations);
+void qr_factorization_mpi(int size, double **matrix, double **q, double **r);
 
 int main(int argc, char *argv[])
 {
@@ -50,7 +50,7 @@ int main(int argc, char *argv[])
         printf("Started for %dx%d matrix\n", arguments.size, arguments.size);
     }
 
-    double *eigenvalues = qr_algorithm(arguments.size, matrix, arguments.number_of_iterations, processId, processCount);
+    double *eigenvalues = qr_algorithm(arguments.size, matrix, arguments.number_of_iterations);
 
     double end = MPI_Wtime();
     time_spent = end - begin;
@@ -80,26 +80,31 @@ int main(int argc, char *argv[])
         printf("A\n");
         print_matrix(arguments.size, matrix);
         printf("\n");
-
+    }
+    if (arguments.display_result)
+    {
         double **q = create_matrix(arguments.size);
         double **r = create_matrix(arguments.size);
-        qr_factorization_mpi(arguments.size, matrix, q, r, processId, processCount);
+        qr_factorization_mpi(arguments.size, matrix, q, r);
+        if (processId == 0)
+        {
 
-        printf("Q\n");
-        print_matrix(arguments.size, q);
-        printf("\n");
+            printf("Q\n");
+            print_matrix(arguments.size, q);
+            printf("\n");
 
-        printf("R\n");
-        print_matrix(arguments.size, r);
-        printf("\n");
+            printf("R\n");
+            print_matrix(arguments.size, r);
+            printf("\n");
 
-        printf("A = QR\n");
-        double **qr = create_matrix(arguments.size);
-        mul_matrix(arguments.size, q, r, qr);
-        print_matrix(arguments.size, qr);
-        free_matrix(arguments.size, qr);
-        free_matrix(arguments.size, q);
-        free_matrix(arguments.size, r);
+            printf("A = QR\n");
+            double **qr = create_matrix(arguments.size);
+            mul_matrix(arguments.size, q, r, qr);
+            print_matrix(arguments.size, qr);
+            free_matrix(arguments.size, qr);
+            free_matrix(arguments.size, q);
+            free_matrix(arguments.size, r);
+        }
     }
 
     free_matrix(arguments.size, matrix);
@@ -171,7 +176,7 @@ void print_usage(char *argv[])
     exit(1); //failure
 }
 
-double *qr_algorithm(int size, double **matrix, int number_of_iterations, int processId, int processCount)
+double *qr_algorithm(int size, double **matrix, int number_of_iterations)
 {
     double **result = create_matrix(size);
     copy_matrix(size, matrix, result);
@@ -179,10 +184,13 @@ double *qr_algorithm(int size, double **matrix, int number_of_iterations, int pr
     double **r = create_matrix(size);
 
     double *eigenvalues = malloc(sizeof(double) * size);
+    int processId, processCount;
+    MPI_Comm_rank(MPI_COMM_WORLD, &processId);
+    MPI_Comm_size(MPI_COMM_WORLD, &processCount);
 
     for (int i = 0; i < number_of_iterations; i++)
     {
-        qr_factorization_mpi(size, result, q, r, processId, processCount);
+        qr_factorization_mpi(size, result, q, r);
         if (processId == 0)
         {
             mul_matrix(size, r, q, result);
@@ -201,11 +209,16 @@ double *qr_algorithm(int size, double **matrix, int number_of_iterations, int pr
     return eigenvalues;
 }
 
-void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int processId, int processCount)
+void qr_factorization_mpi(int size, double **matrix, double **q, double **r)
 {
+    int processId, processCount;
+    MPI_Comm_rank(MPI_COMM_WORLD, &processId);
+    MPI_Comm_size(MPI_COMM_WORLD, &processCount);
+
     for (int k = 0; k < size; k++)
     {
         double r_sum = 0;
+
         for (int i = 0; i < size; i++)
         {
             if (i % processCount != processId)
@@ -214,7 +227,8 @@ void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int
             r_sum += matrix[k][i] * matrix[k][i];
         }
 
-        double result = r_sum;
+        double result;
+
         MPI_Reduce(&r_sum, &result, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
         if (processId == 0)
@@ -227,7 +241,7 @@ void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int
             }
         }
 
-        // MPI_Bcast(r[k], size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(&r[k][k], 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         MPI_Bcast(q[k], size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
         for (int j = k + 1; j < size; j++)
@@ -247,25 +261,12 @@ void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int
             {
                 matrix[j][i] = matrix[j][i] - r[j][k] * q[k][i];
             }
-
-            if (processId > 0)
-            {
-
-                MPI_Send(&r[j][k], size, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
-                MPI_Send(matrix[j], size, MPI_DOUBLE, 0, 2, MPI_COMM_WORLD);
-            }
-            else if (processId == 0)
-            {
-                for (int i = 1; i < processCount; i++)
-                {
-                    MPI_Recv(&r[j][k], size, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    MPI_Recv(matrix[j], size, MPI_DOUBLE, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                }
-            }
-
-            // MPI_Bcast
         }
 
-        MPI_Bcast(&matrix[0][0], size * size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        for (int j = k + 1; j < size; j++)
+        {
+            MPI_Bcast(r[j], size, MPI_DOUBLE, j % processCount, MPI_COMM_WORLD);
+            MPI_Bcast(matrix[j], size, MPI_DOUBLE, j % processCount, MPI_COMM_WORLD);
+        }
     }
 }

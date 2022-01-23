@@ -1,22 +1,15 @@
 #!/bin/bash
 
-for((i=100;i<=550;i+=50))
+for((i=50;i<=550;i+=50))
 do
     sizes+=($i);
 done
 
-file_name_seq=seq-100-1000.csv
-file_name_parallel=parallel-100-1000.csv
+file_name_mpi=mpi-100-550.csv
 
-rm -rf ${file_name_seq}
-rm -rf ${file_name_parallel}
+rm -rf ${file_name_mpi}
 
 for((i=0;i<${#sizes[@]};i++))
 do
-    ./qr_factorization -n ${sizes[i]} -o ${file_name_seq}
-done
-
-for((i=0;i<${#sizes[@]};i++))
-do
-    ./qr_factorization -n ${sizes[i]} -o ${file_name_parallel} -p
+    mpirun -np 4 ./qr_factorization -n ${sizes[i]} -o ${file_name_mpi}
 done
