@@ -1,7 +1,12 @@
 #include <getopt.h>
 #include <time.h>
 #include <math.h>
+#include <mpi.h>
 #include "common.h"
+
+const int RUN_SEQ = 0;
+const int RUN_OPENMP = 1;
+const int RUN_MPI = 2;
 
 struct arguments_t
 {
@@ -10,48 +15,58 @@ struct arguments_t
     int display_result;
     int write_to_file;
     char *file_name;
-    int run_parallel;
     int number_of_iterations;
 };
 
 struct arguments_t parse_arguments(int argc, char *argv[]);
-double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iterations);
-void qr_factorization(int size, double **matrix, double **q, double **r, int parallel);
-void qr_factorization_seq(int size, double **matrix, double **q, double **r);
-void qr_factorization_parallel(int size, double **matrix, double **q, double **r);
+double *qr_algorithm(int size, double **matrix, int number_of_iterations, int processId, int processCount);
+void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int processId, int processCount);
 
 int main(int argc, char *argv[])
 {
+    int processCount = 0, processId = 0;
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(MPI_COMM_WORLD, &processId);
+    MPI_Comm_size(MPI_COMM_WORLD, &processCount);
+
     struct arguments_t arguments = parse_arguments(argc, argv);
 
     srand((unsigned)time(NULL));
 
     double **matrix = create_matrix(arguments.size);
-    random_fill(arguments.size, arguments.max_number, matrix);
 
-    double **A = create_matrix(arguments.size);
-    copy_matrix(arguments.size, matrix, A);
+    if (processId == 0)
+    {
+        random_fill(arguments.size, arguments.max_number, matrix);
+    }
+
+    MPI_Bcast(&matrix[0][0], arguments.size * arguments.size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
     double time_spent;
 
-    double begin = omp_get_wtime();
-    printf("Started for %dx%d matrix\n", arguments.size, arguments.size);
+    double begin = MPI_Wtime();
+    if (processId == 0)
+    {
+        printf("Started for %dx%d matrix\n", arguments.size, arguments.size);
+    }
 
-    double *eigenvalues = qr_algorithm(arguments.size, matrix, arguments.run_parallel, arguments.number_of_iterations);
+    double *eigenvalues = qr_algorithm(arguments.size, matrix, arguments.number_of_iterations, processId, processCount);
 
-    double end = omp_get_wtime();
+    double end = MPI_Wtime();
     time_spent = end - begin;
+    if (processId == 0)
+    {
+        printf("Ended on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
+    }
 
-    printf("Ended on matrix of size %dx%d in %f s\n", arguments.size, arguments.size, time_spent);
-
-    if (arguments.write_to_file)
+    if (processId == 0 && arguments.write_to_file)
     {
         FILE *file = fopen(arguments.file_name, "a");
         fprintf(file, "%d,%f\n", arguments.size, time_spent);
         fclose(file);
     }
 
-    if (arguments.display_result)
+    if (processId == 0 && arguments.display_result)
     {
         printf("Eigenvalues\n");
         for (int i = 0; i < arguments.size; i++)
@@ -63,12 +78,12 @@ int main(int argc, char *argv[])
         printf("\n");
 
         printf("A\n");
-        print_matrix(arguments.size, A);
+        print_matrix(arguments.size, matrix);
         printf("\n");
 
         double **q = create_matrix(arguments.size);
         double **r = create_matrix(arguments.size);
-        qr_factorization(arguments.size, A, q, r, arguments.run_parallel);
+        qr_factorization_mpi(arguments.size, matrix, q, r, processId, processCount);
 
         printf("Q\n");
         print_matrix(arguments.size, q);
@@ -88,8 +103,9 @@ int main(int argc, char *argv[])
     }
 
     free_matrix(arguments.size, matrix);
-    free_matrix(arguments.size, A);
     free(eigenvalues);
+
+    MPI_Finalize();
 
     return 0;
 }
@@ -105,11 +121,10 @@ struct arguments_t parse_arguments(int argc, char *argv[])
     arguments.max_number = 100;
     arguments.display_result = 0;
     arguments.write_to_file = 0;
-    arguments.run_parallel = 0;
     arguments.number_of_iterations = 10;
     int opt;
 
-    while ((opt = getopt(argc, argv, "hvn:m:o:pi:")) != -1)
+    while ((opt = getopt(argc, argv, "hvn:m:o:i:")) != -1)
     {
         switch (opt)
         {
@@ -129,9 +144,6 @@ struct arguments_t parse_arguments(int argc, char *argv[])
             arguments.write_to_file = 1;
             arguments.file_name = optarg;
             break;
-        case 'p':
-            arguments.run_parallel = 1;
-            break;
         case 'i':
             arguments.number_of_iterations = atoi(optarg);
             break;
@@ -145,21 +157,21 @@ struct arguments_t parse_arguments(int argc, char *argv[])
 
 void print_usage(char *argv[])
 {
-    fprintf(stderr, "Usage %s -n size [-m max_number] [-h] [-d] [-o file] [-p] \n"
+    fprintf(stderr, "Usage %s -n size [-m max_number] [-h] [-o file]\n"
                     "Options are:\n"
                     "    -h: display what you are reading now\n"
                     "    -n size: size of matrix\n"
                     "    -m max_number: maximum number of cell in generated matrix (default 100)\n"
                     "    -v display eigenvalues and A,Q,R, A=Q*R matrices (default false)\n"
                     "    -o file: append size and execution time to file (in csv format)\n"
-                    "    -p: run in parallel\n"
                     "    -i iterations_count: number of iterations in algorithm (default 10)\n",
             argv[0]);
 
+    MPI_Finalize();
     exit(1); //failure
 }
 
-double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iterations)
+double *qr_algorithm(int size, double **matrix, int number_of_iterations, int processId, int processCount)
 {
     double **result = create_matrix(size);
     copy_matrix(size, matrix, result);
@@ -170,12 +182,13 @@ double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iter
 
     for (int i = 0; i < number_of_iterations; i++)
     {
-        qr_factorization(size, result, q, r, parallel);
-        /* Ak+1 = Rk Qk */
-        if(parallel)
-            mul_matrix_parallel(size, r, q, result);
-        else
-            mul_matrix(size,r,q,result);
+        qr_factorization_mpi(size, result, q, r, processId, processCount);
+        if (processId == 0)
+        {
+            mul_matrix(size, r, q, result);
+        }
+
+        MPI_Bcast(&result[0][0], size * size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 
     for (int i = 0; i < size; i++)
@@ -188,96 +201,71 @@ double *qr_algorithm(int size, double **matrix, int parallel, int number_of_iter
     return eigenvalues;
 }
 
-void qr_factorization(int size, double **matrix, double **q, double **r, int parallel)
-{
-    if (parallel)
-    {
-        qr_factorization_parallel(size, matrix, q, r);
-    }
-    else
-    {
-        qr_factorization_seq(size, matrix, q, r);
-    }
-}
-
-void qr_factorization_seq(int size, double **matrix, double **q, double **r)
+void qr_factorization_mpi(int size, double **matrix, double **q, double **r, int processId, int processCount)
 {
     for (int k = 0; k < size; k++)
     {
         double r_sum = 0;
         for (int i = 0; i < size; i++)
         {
-            r_sum += matrix[i][k] * matrix[i][k];
+            if (i % processCount != processId)
+                continue;
+
+            r_sum += matrix[k][i] * matrix[k][i];
         }
 
-        r_sum = sqrt(r_sum);
-        r[k][k] = r_sum;
+        double result = r_sum;
+        MPI_Reduce(&r_sum, &result, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-        for (int i = 0; i < size; i++)
+        if (processId == 0)
         {
-            q[i][k] = matrix[i][k] / r_sum;
+            result = sqrt(result);
+            r[k][k] = result;
+            for (int i = 0; i < size; i++)
+            {
+                q[k][i] = matrix[k][i] / result;
+            }
         }
+
+        // MPI_Bcast(r[k], size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(q[k], size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
         for (int j = k + 1; j < size; j++)
         {
-            r_sum = 0;
+            if (j % processCount != processId)
+                continue;
+
+            result = 0;
             for (int i = 0; i < size; i++)
             {
-                r_sum += q[i][k] * matrix[i][j];
+                result += q[k][i] * matrix[j][i];
             }
 
-            r[k][j] = r_sum;
+            r[j][k] = result;
 
             for (int i = 0; i < size; i++)
             {
-                matrix[i][j] = matrix[i][j] - r[k][j] * q[i][k];
+                matrix[j][i] = matrix[j][i] - r[j][k] * q[k][i];
             }
-        }
-    }
-}
 
-void qr_factorization_parallel(int size, double **matrix, double **q, double **r)
-{
-
-    double r_sum;
-
-    int i;
-    int j;
-    int k;
-
-    for (k = 0; k < size; k++)
-    {
-        r_sum = 0;
-        #pragma omp parallel for private(i) shared(matrix, size) reduction(+:r_sum)
-        for (i = 0; i < size; i++)
-        {
-            r_sum += matrix[i][k] * matrix[i][k];
-        }
-
-        r_sum = sqrt(r_sum);
-        r[k][k] = r_sum;
-
-        #pragma omp parallel for private(i) shared(k, r, matrix, q, size)
-        for (i = 0; i < size; i++)
-        {
-            q[i][k] = matrix[i][k] / r[k][k];
-        }
-
-        #pragma omp parallel for private(j, r_sum, i) shared(k, r, q, matrix, size)
-        for (j = k + 1; j < size; j++)
-        {
-            r_sum = 0;
-            for (i = 0; i < size; i++)
+            if (processId > 0)
             {
-                r_sum += q[i][k] * matrix[i][j];
+
+                MPI_Send(&r[j][k], size, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+                MPI_Send(matrix[j], size, MPI_DOUBLE, 0, 2, MPI_COMM_WORLD);
             }
-
-            r[k][j] = r_sum;
-
-            for (i = 0; i < size; i++)
+            else if (processId == 0)
             {
-                matrix[i][j] = matrix[i][j] - r[k][j] * q[i][k];
+                for (int i = 1; i < processCount; i++)
+                {
+                    MPI_Recv(&r[j][k], size, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                    MPI_Recv(matrix[j], size, MPI_DOUBLE, i, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                }
             }
+
+            // MPI_Bcast
         }
+
+        MPI_Bcast(&matrix[0][0], size * size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 }

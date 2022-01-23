@@ -19,7 +19,7 @@ void print_matrix(int size, double **matrix)
     {
         for (int j = 0; j < size; j++)
         {
-            printf("%*.2f,", padding, matrix[i][j]);
+            printf("%*.2f,", padding, matrix[j][i]);
         }
         printf("\n");
     }
@@ -27,10 +27,10 @@ void print_matrix(int size, double **matrix)
 
 void free_matrix(int size, double **matrix)
 {
-    for (int i = 0; i < size; i++)
-    {
-        free(matrix[i]);
-    }
+    // for (int i = 0; i < size; i++)
+    // {
+    //     free(matrix[i]);
+    // }
 
     free(matrix);
 }
@@ -48,13 +48,12 @@ double random_number(int max_number)
 
 double **create_matrix(int size)
 {
-    double **matrix = malloc(sizeof(double *) * size);
+    double *data = (double *)calloc(sizeof(double), size * size);
+    double **array = (double **)malloc(size * sizeof(double *));
     for (int i = 0; i < size; i++)
-    {
-        matrix[i] = calloc(size, sizeof(double));
-    }
+        array[i] = &(data[size * i]);
 
-    return matrix;
+    return array;
 }
 
 void random_fill(int size, int max_number, double **matrix)
@@ -88,32 +87,32 @@ void mul_matrix(int size, double **matrix1, double **matrix2, double **result)
             double sum = 0;
             for (int i = 0; i < size; i++)
             {
-                sum += matrix1[result_row][i] * matrix2[i][result_col];
+                sum += matrix1[i][result_row] * matrix2[result_col][i];
             }
 
-            result[result_row][result_col] = sum;
+            result[result_col][result_row] = sum;
         }
     }
 }
 
-void mul_matrix_parallel(int size, double **matrix1, double **matrix2, double **result)
-{
-    int i;
-    int j;
-    int k;
+// void mul_matrix_parallel(int size, double **matrix1, double **matrix2, double **result)
+// {
+//     int i;
+//     int j;
+//     int k;
 
-    #pragma omp parallel for private(i, j, k) shared(matrix1, matrix2, result)
-    for (i = 0; i < size; i++)
-    {
-        for (j = 0; j < size; j++)
-        {
-            double sum = 0;
-            for (k = 0; k < size; k++)
-            {
-                sum += matrix1[i][k] * matrix2[k][j];
-            }
+// #pragma omp parallel for private(i, j, k) shared(matrix1, matrix2, result)
+//     for (i = 0; i < size; i++)
+//     {
+//         for (j = 0; j < size; j++)
+//         {
+//             double sum = 0;
+//             for (k = 0; k < size; k++)
+//             {
+//                 sum += matrix1[i][k] * matrix2[k][j];
+//             }
 
-            result[i][j] = sum;
-        }
-    }
-}
+//             result[i][j] = sum;
+//         }
+//     }
+// }

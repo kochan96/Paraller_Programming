@@ -1,4 +1,4 @@
-CC	= gcc   
+CC	= mpicc   
 # uncomment for paraller
 CFLAGS    = -fopenmp
 LIBS	  = -lm
