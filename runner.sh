@@ -5,7 +5,7 @@ do
     sizes+=($i);
 done
 
-file_name_mpi=mpi-100-550.csv
+file_name_mpi=mpi-50-550.csv
 
 rm -rf ${file_name_mpi}
 
